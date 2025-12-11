@@ -693,6 +693,8 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
                 If set to `None`, the safetensors weights are downloaded if they're available **and** if the
                 safetensors library is installed. If set to `True`, the model is forcibly loaded from safetensors
                 weights. If set to `False`, safetensors weights are not loaded.
+            use_flashpack (`bool`, *optional*, defaults to `None`):
+                Whether to load the model using flashpack. This will be faster than safetensors.
             use_onnx (`bool`, *optional*, defaults to `None`):
                 If set to `True`, ONNX weights will always be downloaded if present. If set to `False`, ONNX weights
                 will never be downloaded. By default `use_onnx` defaults to the `_is_onnx` class attribute which is
@@ -755,6 +757,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
         variant = kwargs.pop("variant", None)
         dduf_file = kwargs.pop("dduf_file", None)
         use_safetensors = kwargs.pop("use_safetensors", None)
+        use_flashpack = kwargs.pop("use_flashpack", None)
         use_onnx = kwargs.pop("use_onnx", None)
         load_connected_pipeline = kwargs.pop("load_connected_pipeline", False)
         quantization_config = kwargs.pop("quantization_config", None)
@@ -836,6 +839,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
                 revision=revision,
                 from_flax=from_flax,
                 use_safetensors=use_safetensors,
+                use_flashpack=use_flashpack,
                 use_onnx=use_onnx,
                 custom_pipeline=custom_pipeline,
                 custom_revision=custom_revision,
@@ -1039,6 +1043,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
                     low_cpu_mem_usage=low_cpu_mem_usage,
                     cached_folder=cached_folder,
                     use_safetensors=use_safetensors,
+                    use_flashpack=use_flashpack,
                     dduf_entries=dduf_entries,
                     provider_options=provider_options,
                     quantization_config=quantization_config,
@@ -1565,6 +1570,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
         custom_revision = kwargs.pop("custom_revision", None)
         variant = kwargs.pop("variant", None)
         use_safetensors = kwargs.pop("use_safetensors", None)
+        use_flashpack = kwargs.pop("use_flashpack", None)
         use_onnx = kwargs.pop("use_onnx", None)
         load_connected_pipeline = kwargs.pop("load_connected_pipeline", False)
         trust_remote_code = kwargs.pop("trust_remote_code", False)
@@ -1684,6 +1690,7 @@ class DiffusionPipeline(ConfigMixin, PushToHubMixin):
                 model_folder_names,
                 filenames,
                 use_safetensors,
+            use_flashpack,
                 from_flax,
                 allow_pickle,
                 use_onnx,

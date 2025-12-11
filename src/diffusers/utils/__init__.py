@@ -166,3 +166,4 @@ def check_min_version(min_version):
             error_message = f"This example requires a minimum version of {min_version},"
         error_message += f" but the version found is {__version__}.\n"
         raise ImportError(error_message)
+from .constants import FLASHPACK_WEIGHTS_NAME

@@ -46,6 +46,7 @@ from ..utils import (
     HF_ENABLE_PARALLEL_LOADING,
     SAFE_WEIGHTS_INDEX_NAME,
     SAFETENSORS_WEIGHTS_NAME,
+            FLASHPACK_WEIGHTS_NAME,
     WEIGHTS_INDEX_NAME,
     WEIGHTS_NAME,
     _add_variant,
@@ -910,6 +911,8 @@ class ModelMixin(torch.nn.Module, PushToHubMixin):
                 If set to `None`, the `safetensors` weights are downloaded if they're available **and** if the
                 `safetensors` library is installed. If set to `True`, the model is forcibly loaded from `safetensors`
                 weights. If set to `False`, `safetensors` weights are not loaded.
+        use_flashpack (`bool`, *optional*, defaults to `None`):
+            Whether to load the model using flashpack. This will be faster than safetensors.
             disable_mmap ('bool', *optional*, defaults to 'False'):
                 Whether to disable mmap when loading a Safetensors model. This option can perform better when the model
                 is on a network mount or hard drive, which may not handle the seeky-ness of mmap very well.
@@ -953,6 +956,12 @@ class ModelMixin(torch.nn.Module, PushToHubMixin):
         low_cpu_mem_usage = kwargs.pop("low_cpu_mem_usage", _LOW_CPU_MEM_USAGE_DEFAULT)
         variant = kwargs.pop("variant", None)
         use_safetensors = kwargs.pop("use_safetensors", None)
+        use_flashpack = kwargs.pop("use_flashpack", None)
+        if use_flashpack and low_cpu_mem_usage:
+            low_cpu_mem_usage = False
+            logger.warning(
+                "`use_flashpack` is not compatible with `low_cpu_mem_usage=True`, setting `low_cpu_mem_usage=False`."
+            )
         quantization_config = kwargs.pop("quantization_config", None)
         dduf_entries: Optional[Dict[str, DDUFEntry]] = kwargs.pop("dduf_entries", None)
         disable_mmap = kwargs.pop("disable_mmap", False)
@@ -969,9 +978,11 @@ class ModelMixin(torch.nn.Module, PushToHubMixin):
             )
 
         allow_pickle = False
-        if use_safetensors is None:
+        if use_safetensors is None and use_flashpack is None:
             use_safetensors = True
             allow_pickle = True
+        if use_flashpack and use_safetensors:
+            raise ValueError("`use_flashpack` and `use_safetensors` can't be both True")
 
         if low_cpu_mem_usage and not is_accelerate_available():
             low_cpu_mem_usage = False
@@ -1209,6 +1220,25 @@ class ModelMixin(torch.nn.Module, PushToHubMixin):
                     logger.warning(
                         "Defaulting to unsafe serialization. Pass `allow_pickle=False` to raise an error instead."
                     )
+            elif use_flashpack:
+                try:
+                    resolved_model_file = _get_model_file(
+                        pretrained_model_name_or_path,
+                        weights_name=_add_variant(FLASHPACK_WEIGHTS_NAME, variant),
+                        cache_dir=cache_dir,
+                        force_download=force_download,
+                        proxies=proxies,
+                        local_files_only=local_files_only,
+                        token=token,
+                        revision=revision,
+                        subfolder=subfolder,
+                        user_agent=user_agent,
+                        commit_hash=commit_hash,
+                        dduf_entries=dduf_entries,
+                    )
+                except IOError as e:
+                    logger.error(f"An error occurred while trying to fetch {pretrained_model_name_or_path}: {e}")
+                    raise
 
             if resolved_model_file is None and not is_sharded:
                 resolved_model_file = _get_model_file(
@@ -1252,13 +1282,15 @@ class ModelMixin(torch.nn.Module, PushToHubMixin):
             torch.set_default_dtype(dtype_orig)
 
         state_dict = None
-        if not is_sharded:
+        if not is_sharded and not use_flashpack:
             # Time to load the checkpoint
             state_dict = load_state_dict(resolved_model_file[0], disable_mmap=disable_mmap, dduf_entries=dduf_entries)
             # We only fix it for non sharded checkpoints as we don't need it yet for sharded one.
             model._fix_state_dict_keys_on_load(state_dict)
 
-        if is_sharded:
+        if use_flashpack:
+            loaded_keys = [k for k, v in model.named_parameters()]
+        elif is_sharded:
             loaded_keys = sharded_metadata["all_checkpoint_keys"]
         else:
             loaded_keys = list(state_dict.keys())
@@ -1299,6 +1331,27 @@ class ModelMixin(torch.nn.Module, PushToHubMixin):
             dduf_entries=dduf_entries,
             is_parallel_loading_enabled=is_parallel_loading_enabled,
         )
+        if use_flashpack:
+            from ..utils.flashpack import assign_from_file
+            from ..utils.flashpack.deserialization import get_flashpack_file_metadata
+
+            assign_from_file(model, resolved_model_file[0])
+            meta = get_flashpack_file_metadata(resolved_model_file[0])
+            all_keys = [item[0] for item in meta["tensors"]]
+            model_state_dict = model.state_dict()
+            expected_keys = list(model_state_dict.keys())
+            missing_keys = list(set(expected_keys) - set(all_keys))
+            unexpected_keys = list(set(all_keys) - set(expected_keys))
+
+            loading_info = {
+                "missing_keys": missing_keys,
+                "unexpected_keys": unexpected_keys,
+                "mismatched_keys": [],
+                "error_msgs": [],
+            }
+            if output_loading_info:
+                return model, loading_info
+            return model
         loading_info = {
             "missing_keys": missing_keys,
             "unexpected_keys": unexpected_keys,

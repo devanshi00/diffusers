@@ -200,6 +200,8 @@ class ConfigMixin:
                 files of compatible classes.
             return_unused_kwargs (`bool`, *optional*, defaults to `False`):
                 Whether kwargs that are not consumed by the Python class should be returned or not.
+            use_flashpack (`bool`, *optional*, defaults to `None`):
+                Whether to load the model using flashpack. This will be faster than safetensors.
             kwargs (remaining dictionary of keyword arguments, *optional*):
                 Can be used to update the configuration object (after it is loaded) and initiate the Python class.
                 `**kwargs` are passed directly to the underlying scheduler/model's `__init__` method and eventually
